@@ -5,9 +5,15 @@ import ScrollTrigger from 'gsap/ScrollTrigger';
 gsap.registerPlugin(ScrollTrigger);
 
 // ─── Tuning knobs ────────────────────────────────────────────────────────
-const PRELOAD_AHEAD  = 80;   // frames to preload ahead of current position
-const PRELOAD_BEHIND = 20;   // frames to keep cached behind
-const CACHE_MAX      = 200;  // max images kept in memory (evict oldest)
+const FRAMES_PER_SHEET = 25;
+const COLS = 5;
+const ROWS = 5;
+const FRAME_W = 1280;
+const FRAME_H = 720;
+
+const PRELOAD_AHEAD_SHEETS  = 5;   // ~125 frames ahead
+const PRELOAD_BEHIND_SHEETS = 2;   // ~50 frames behind
+const CACHE_MAX_SHEETS      = 40;  // ~1000 frames in RAM max
 
 const CanvasScroller = ({ frameCount = 9552 }) => {
   const canvasRef        = useRef(null);
@@ -21,7 +27,8 @@ const CanvasScroller = ({ frameCount = 9552 }) => {
   const [loadText, setLoadText]         = useState("Preparing the estate...");
 
   // ── Helpers ──────────────────────────────────────────────────────────
-  const frameSrc = (n) => `/frames/frame_${String(n).padStart(4, '0')}.jpg`;
+  const totalSheets = Math.ceil(frameCount / FRAMES_PER_SHEET);
+  const sheetSrc = (idx) => `/sprites/sheet_${String(idx).padStart(4, '0')}.jpg`;
 
   // GSAP scroll trigger to cross-fade the Hero Poster into the Video on scroll
   useEffect(() => {
@@ -38,26 +45,26 @@ const CanvasScroller = ({ frameCount = 9552 }) => {
   }, [introState]);
 
   const evictOldest = () => {
-    while (cacheOrderRef.current.length > CACHE_MAX) {
+    while (cacheOrderRef.current.length > CACHE_MAX_SHEETS) {
       const oldest = cacheOrderRef.current.shift();
       cacheRef.current.delete(oldest);
     }
   };
 
-  const loadFrame = (n) => {
-    if (n < 1 || n > frameCount) return;
-    if (cacheRef.current.has(n)) return;          // already cached
+  const loadSheet = (sheetIdx) => {
+    if (sheetIdx < 0 || sheetIdx >= totalSheets) return;
+    if (cacheRef.current.has(sheetIdx)) return;
 
     const img = new Image();
-    img.src = frameSrc(n);
+    img.src = sheetSrc(sheetIdx);
     img.onload = () => {
-      cacheRef.current.set(n, img);
-      cacheOrderRef.current.push(n);
+      cacheRef.current.set(sheetIdx, img);
+      cacheOrderRef.current.push(sheetIdx);
       evictOldest();
       setLoadedCount(c => c + 1);
 
-      // If this is the first frame, draw it immediately
-      if (n === 1) drawFrame(1);
+      // If this is the very first sheet, draw frame 1 immediately
+      if (sheetIdx === 0) drawFrame(1);
     };
   };
 
@@ -65,21 +72,35 @@ const CanvasScroller = ({ frameCount = 9552 }) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-    const img = cacheRef.current.get(n);
+    
+    const zeroIdx = n - 1;
+    const sheetIdx = Math.floor(zeroIdx / FRAMES_PER_SHEET);
+    const localIdx = zeroIdx % FRAMES_PER_SHEET;
+    
+    const col = localIdx % COLS;
+    const row = Math.floor(localIdx / COLS);
+    
+    const img = cacheRef.current.get(sheetIdx);
     if (img) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      ctx.drawImage(
+        img,
+        col * FRAME_W, row * FRAME_H, FRAME_W, FRAME_H, // Source
+        0, 0, canvas.width, canvas.height               // Destination
+      );
     }
   };
 
-  const preloadWindow = (center) => {
+  const preloadWindow = (currentFrame) => {
+    const currentSheet = Math.floor((currentFrame - 1) / FRAMES_PER_SHEET);
+    
     // Preload ahead
-    for (let i = center; i <= Math.min(frameCount, center + PRELOAD_AHEAD); i++) {
-      loadFrame(i);
+    for (let i = currentSheet; i <= Math.min(totalSheets - 1, currentSheet + PRELOAD_AHEAD_SHEETS); i++) {
+      loadSheet(i);
     }
-    // Keep a small buffer behind
-    for (let i = Math.max(1, center - PRELOAD_BEHIND); i < center; i++) {
-      loadFrame(i);
+    // Keep buffer behind
+    for (let i = Math.max(0, currentSheet - PRELOAD_BEHIND_SHEETS); i < currentSheet; i++) {
+      loadSheet(i);
     }
   };
 
@@ -89,8 +110,8 @@ const CanvasScroller = ({ frameCount = 9552 }) => {
     canvas.width  = 1280;
     canvas.height = 720;
 
-    // Eagerly preload the first chunk so the hero is instant
-    for (let i = 1; i <= Math.min(100, frameCount); i++) loadFrame(i);
+    // Eagerly preload the first 4 sheets (100 frames) so the hero is instant
+    for (let i = 0; i < Math.min(4, totalSheets); i++) loadSheet(i);
 
     const currentFrameObj = { frame: 1 };
 
@@ -155,7 +176,7 @@ const CanvasScroller = ({ frameCount = 9552 }) => {
   }, []);
 
   // Real progress
-  const initTarget  = Math.min(100, frameCount);
+  const initTarget  = Math.min(4, totalSheets); // 4 sheets = ~100 frames
   const realPct     = Math.min(100, Math.round((loadedCount / initTarget) * 100));
 
   useEffect(() => {
