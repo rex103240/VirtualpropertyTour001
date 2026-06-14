@@ -17,8 +17,9 @@ const CACHE_MAX_SHEETS      = 40;  // ~1000 frames in RAM max
 
 const CanvasScroller = ({ frameCount = 9552 }) => {
   const canvasRef        = useRef(null);
-  const cacheRef         = useRef(new Map());       // frame# → HTMLImageElement
-  const cacheOrderRef    = useRef([]);              // insertion order for eviction
+  const cacheRef         = useRef(new Map());       
+  const cacheOrderRef    = useRef([]);              
+  const loadingSheetsRef = useRef(new Set());       // prevents duplicate HTTP spam
   const currentFrameRef  = useRef(1);
   const [currentFrame, setCurrentFrame] = useState(1);
   const [loadedCount, setLoadedCount]   = useState(0);
@@ -28,7 +29,7 @@ const CanvasScroller = ({ frameCount = 9552 }) => {
 
   // ── Helpers ──────────────────────────────────────────────────────────
   const totalSheets = Math.ceil(frameCount / FRAMES_PER_SHEET);
-  const sheetSrc = (idx) => `/sprites/sheet_${String(idx).padStart(4, '0')}.jpg`;
+  const sheetSrc = (idx) => `https://cdn.jsdelivr.net/gh/rex103240/birdhouse-assets@main/sprites/sheet_${String(idx).padStart(4, '0')}.jpg`;
 
   // GSAP scroll trigger to cross-fade the Hero Poster into the Video on scroll
   useEffect(() => {
@@ -54,17 +55,28 @@ const CanvasScroller = ({ frameCount = 9552 }) => {
   const loadSheet = (sheetIdx) => {
     if (sheetIdx < 0 || sheetIdx >= totalSheets) return;
     if (cacheRef.current.has(sheetIdx)) return;
+    if (loadingSheetsRef.current.has(sheetIdx)) return; // Don't fetch if already fetching
 
+    loadingSheetsRef.current.add(sheetIdx);
     const img = new Image();
     img.src = sheetSrc(sheetIdx);
+    
     img.onload = () => {
+      loadingSheetsRef.current.delete(sheetIdx);
       cacheRef.current.set(sheetIdx, img);
       cacheOrderRef.current.push(sheetIdx);
       evictOldest();
       setLoadedCount(c => c + 1);
 
-      // If this is the very first sheet, draw frame 1 immediately
-      if (sheetIdx === 0) drawFrame(1);
+      // The moment it loads, check if we are currently trying to view a frame on this sheet
+      const currentWaitingSheet = Math.floor((currentFrameRef.current - 1) / FRAMES_PER_SHEET);
+      if (sheetIdx === currentWaitingSheet) {
+        drawFrame(currentFrameRef.current);
+      }
+    };
+    
+    img.onerror = () => {
+      loadingSheetsRef.current.delete(sheetIdx); // allow retry
     };
   };
 
@@ -121,15 +133,9 @@ const CanvasScroller = ({ frameCount = 9552 }) => {
       currentFrameRef.current = n;
       setCurrentFrame(n);
 
-      // Draw best available frame (fallback to nearest cached)
-      if (cacheRef.current.has(n)) {
+      const sheetIdx = Math.floor((n - 1) / FRAMES_PER_SHEET);
+      if (cacheRef.current.has(sheetIdx)) {
         drawFrame(n);
-      } else {
-        // Find closest cached frame to avoid blank canvas
-        for (let delta = 1; delta < 15; delta++) {
-          if (cacheRef.current.has(n - delta)) { drawFrame(n - delta); break; }
-          if (cacheRef.current.has(n + delta)) { drawFrame(n + delta); break; }
-        }
       }
 
       // Preload the window around current position
