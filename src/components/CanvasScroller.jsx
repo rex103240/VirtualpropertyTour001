@@ -29,7 +29,7 @@ const CanvasScroller = ({ frameCount = 9552 }) => {
 
   // ── Helpers ──────────────────────────────────────────────────────────
   const totalSheets = Math.ceil(frameCount / FRAMES_PER_SHEET);
-  const sheetSrc = (idx) => `https://cdn.jsdelivr.net/gh/rex103240/birdhouse-assets@main/sprites/sheet_${String(idx).padStart(4, '0')}.jpg`;
+  const sheetSrc = (idx) => `https://cdn.jsdelivr.net/gh/rex103240/images-for-property-001@main/sheet_${String(idx).padStart(4, '0')}.jpg`;
 
   // GSAP scroll trigger to cross-fade the Hero Poster into the Video on scroll
   useEffect(() => {
@@ -59,6 +59,7 @@ const CanvasScroller = ({ frameCount = 9552 }) => {
 
     loadingSheetsRef.current.add(sheetIdx);
     const img = new Image();
+    img.crossOrigin = "anonymous";
     img.src = sheetSrc(sheetIdx);
     
     img.onload = () => {
@@ -229,7 +230,12 @@ const CanvasScroller = ({ frameCount = 9552 }) => {
         </div>
         <div className="loading-center">
           {introState === 'loading' && (
-            <h1 className="loading-serif">{loadText}</h1>
+            <>
+              <h1 className="loading-serif">{loadText}</h1>
+              <p style={{ color: 'var(--alpine)', marginTop: 10, fontSize: '0.8rem', letterSpacing: '0.1em' }}>
+                FETCHING ASSETS: {loadedCount} / {initTarget}
+              </p>
+            </>
           )}
           {introState === 'awaiting-entry' && (
             <button className="btn-enter-estate" onClick={() => setIntroState('ready')}>
